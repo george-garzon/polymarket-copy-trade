@@ -218,7 +218,8 @@ async def execute_copy_trade(trade_info):
             signature_type=SIGNATURE_TYPE,
             funder=FUNDER
         )
-        client.set_api_creds(client.create_or_derive_api_creds())
+        creds = client.create_or_derive_api_creds()
+        client.set_api_creds(creds)
         
         amount = trade_info['amount_usd'] * COPY_TRADE_MULTIPLIER
         
@@ -231,27 +232,18 @@ async def execute_copy_trade(trade_info):
         print(f"   Side: {trade_info['side']}")
         print(f"   Amount: ${amount:.2f}")
         print(f"   Shares: {trade_info['shares']:.2f}" if trade_info['shares'] else "   Shares: N/A")
-        
-        mo = MarketOrderArgs(
-            token_id=trade_info['token_id'],
-            amount=int(amount * 1e6),
-            side=trade_info['side'],
-            order_type=OrderType.FOK
-        )
-        
+
+        mo = MarketOrderArgs(token_id=trade_info['token_id'], amount=1.00, side=trade_info['side'], order_type=OrderType.FOK)
         signed = client.create_market_order(mo)
         resp = client.post_order(signed, OrderType.FOK)
-        
-        print(f"✅ Copy trade executed successfully!")
-        print(f"   Response: {resp}")
-        return True
+        print(resp)
+
         
     except Exception as e:
         print(f"❌ Error executing copy trade: {e}")
         import traceback
         traceback.print_exc()
         return False
-
 
 async def send_alert(event_type, log_data, decoded):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -389,7 +381,7 @@ async def get_events():
         print(f"Réponse de souscription: {subscription_response}")
 
         while True:
-            await process_transaction(web3, "0xe9e14a747063db5db66c5522ada4f23a8916c5361310b15e37f3871cb8832855")
+            await process_transaction(web3, "0x8fe6af21be3a382cc348e62f6125fadc4359487166c8f8ef01bff491c0b020e0")
             await asyncio.sleep(100)
             try:
                 message = await asyncio.wait_for(ws.recv(), timeout=60)
