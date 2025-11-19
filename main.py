@@ -69,7 +69,7 @@ def parse_polymarket_trade(w3, tx_data, tx_receipt):
         'shares': None,
     }
     
-    watch_addr = w3.to_checksum_address(WATCH_ADDRESS)
+    watch_addr_lower = w3.to_checksum_address(WATCH_ADDRESS).lower()
     
     input_data = tx_data.get('input', '')
     if isinstance(input_data, bytes):
@@ -77,232 +77,139 @@ def parse_polymarket_trade(w3, tx_data, tx_receipt):
     elif not isinstance(input_data, str):
         input_data = str(input_data)
     
-    if input_data.startswith(MATCH_ORDERS_SIG):
-        try:
-            match_orders_abi = {
-                "name": "matchOrders",
-                "type": "function",
-                "inputs": [
-                    {
-                        "name": "takerOrder",
-                        "type": "tuple",
-                        "components": [
-                            {"name": "salt", "type": "uint256"},
-                            {"name": "maker", "type": "address"},
-                            {"name": "signer", "type": "address"},
-                            {"name": "taker", "type": "address"},
-                            {"name": "tokenId", "type": "uint256"},
-                            {"name": "makerAmount", "type": "uint256"},
-                            {"name": "takerAmount", "type": "uint256"},
-                            {"name": "expiration", "type": "uint256"},
-                            {"name": "nonce", "type": "uint256"},
-                            {"name": "feeRateBps", "type": "uint256"},
-                            {"name": "side", "type": "uint8"},
-                            {"name": "signatureType", "type": "uint8"},
-                            {"name": "signature", "type": "bytes"}
-                        ]
-                    },
-                    {
-                        "name": "makerOrders",
-                        "type": "tuple[]",
-                        "components": [
-                            {"name": "salt", "type": "uint256"},
-                            {"name": "maker", "type": "address"},
-                            {"name": "signer", "type": "address"},
-                            {"name": "taker", "type": "address"},
-                            {"name": "tokenId", "type": "uint256"},
-                            {"name": "makerAmount", "type": "uint256"},
-                            {"name": "takerAmount", "type": "uint256"},
-                            {"name": "expiration", "type": "uint256"},
-                            {"name": "nonce", "type": "uint256"},
-                            {"name": "feeRateBps", "type": "uint256"},
-                            {"name": "side", "type": "uint8"},
-                            {"name": "signatureType", "type": "uint8"},
-                            {"name": "signature", "type": "bytes"}
-                        ]
-                    },
-                    {"name": "takerFillAmount", "type": "uint256"},
-                    {"name": "takerReceiveAmount", "type": "uint256"},
-                    {"name": "makerFillAmounts", "type": "uint256[]"},
-                    {"name": "takerFeeAmount", "type": "uint256"},
-                    {"name": "makerFeeAmounts", "type": "uint256[]"}
-                ]
-            }
-            
-            contract = w3.eth.contract(abi=[match_orders_abi])
-            decoded = contract.decode_function_input(input_data)
-            params = decoded[1]
-            
-            taker_order = params['takerOrder']
-            taker_fill_amount = params['takerFillAmount']
-            taker_receive_amount = params['takerReceiveAmount']
-            
+    if not input_data.startswith(MATCH_ORDERS_SIG):
+        return trade_info
+    
+    try:
+        match_orders_abi = {
+            "name": "matchOrders",
+            "type": "function",
+            "inputs": [
+                {
+                    "name": "takerOrder",
+                    "type": "tuple",
+                    "components": [
+                        {"name": "salt", "type": "uint256"},
+                        {"name": "maker", "type": "address"},
+                        {"name": "signer", "type": "address"},
+                        {"name": "taker", "type": "address"},
+                        {"name": "tokenId", "type": "uint256"},
+                        {"name": "makerAmount", "type": "uint256"},
+                        {"name": "takerAmount", "type": "uint256"},
+                        {"name": "expiration", "type": "uint256"},
+                        {"name": "nonce", "type": "uint256"},
+                        {"name": "feeRateBps", "type": "uint256"},
+                        {"name": "side", "type": "uint8"},
+                        {"name": "signatureType", "type": "uint8"},
+                        {"name": "signature", "type": "bytes"}
+                    ]
+                },
+                {
+                    "name": "makerOrders",
+                    "type": "tuple[]",
+                    "components": [
+                        {"name": "salt", "type": "uint256"},
+                        {"name": "maker", "type": "address"},
+                        {"name": "signer", "type": "address"},
+                        {"name": "taker", "type": "address"},
+                        {"name": "tokenId", "type": "uint256"},
+                        {"name": "makerAmount", "type": "uint256"},
+                        {"name": "takerAmount", "type": "uint256"},
+                        {"name": "expiration", "type": "uint256"},
+                        {"name": "nonce", "type": "uint256"},
+                        {"name": "feeRateBps", "type": "uint256"},
+                        {"name": "side", "type": "uint8"},
+                        {"name": "signatureType", "type": "uint8"},
+                        {"name": "signature", "type": "bytes"}
+                    ]
+                },
+                {"name": "takerFillAmount", "type": "uint256"},
+                {"name": "takerReceiveAmount", "type": "uint256"},
+                {"name": "makerFillAmounts", "type": "uint256[]"},
+                {"name": "takerFeeAmount", "type": "uint256"},
+                {"name": "makerFeeAmounts", "type": "uint256[]"}
+            ]
+        }
+        
+        contract = w3.eth.contract(abi=[match_orders_abi])
+        decoded = contract.decode_function_input(input_data)
+        params = decoded[1]
+        
+        taker_order = params['takerOrder']
+        taker_fill_amount = params['takerFillAmount']
+        taker_receive_amount = params['takerReceiveAmount']
+        maker_fill_amounts = params.get('makerFillAmounts', [])
+        maker_orders = params.get('makerOrders', [])
+        
+        if not isinstance(maker_orders, list):
+            maker_orders = list(maker_orders) if maker_orders else []
+        
+        taker_maker = str(taker_order.get('maker', '')).lower()
+        taker_signer = str(taker_order.get('signer', '')).lower()
+        is_watched_taker = (taker_maker == watch_addr_lower or taker_signer == watch_addr_lower)
+        
+        watched_maker_idx = None
+        for idx, maker_order in enumerate(maker_orders):
+            maker_addr = str(maker_order.get('maker', '')).lower()
+            signer_addr = str(maker_order.get('signer', '')).lower()
+            if maker_addr == watch_addr_lower or signer_addr == watch_addr_lower:
+                watched_maker_idx = idx
+                break
+        
+        if not is_watched_taker and watched_maker_idx is None:
+            return trade_info
+        
+        if is_watched_taker:
             token_id = taker_order['tokenId']
             taker_side = taker_order['side']
             
-            taker_maker = taker_order.get('maker', '').lower()
-            taker_signer = taker_order.get('signer', '').lower()
-            watch_addr_lower = watch_addr.lower()
-            
-            is_watched_taker = (taker_maker == watch_addr_lower or taker_signer == watch_addr_lower)
-            
-            maker_orders = params.get('makerOrders', [])
-            watched_maker_order = None
-            for maker_order in maker_orders:
-                if maker_order.get('maker', '').lower() == watch_addr_lower or \
-                   maker_order.get('signer', '').lower() == watch_addr_lower:
-                    watched_maker_order = maker_order
-                    break
-            
-            if not is_watched_taker and not watched_maker_order:
-                return {
-                    'token_id': None,
-                    'side': None,
-                    'amount_usd': None,
-                    'shares': None,
-                }
-
-            if is_watched_taker:
-                trade_info['token_id'] = str(token_id)
-                if taker_side == 0:
-                    trade_info['side'] = BUY
-                    trade_info['amount_usd'] = taker_fill_amount / 1e6
-                    trade_info['shares'] = taker_receive_amount / 1e6
-                else:
-                    trade_info['side'] = SELL
-                    trade_info['amount_usd'] = taker_receive_amount / 1e6
-                    trade_info['shares'] = taker_fill_amount / 1e6
+            trade_info['token_id'] = str(token_id)
+            if taker_side == 0:
+                trade_info['side'] = BUY
+                trade_info['amount_usd'] = taker_fill_amount / 1e6
+                trade_info['shares'] = taker_receive_amount / 1e6
             else:
-                maker_fill_amounts = params.get('makerFillAmounts', [])
-                maker_index = None
-                for i, maker_order in enumerate(maker_orders):
-                    if maker_order.get('maker', '').lower() == watch_addr_lower or \
-                       maker_order.get('signer', '').lower() == watch_addr_lower:
-                        maker_index = i
-                        break
-                
-                if maker_index is not None and maker_index < len(maker_fill_amounts):
-                    maker_fill_amount = maker_fill_amounts[maker_index]
-                    maker_side = watched_maker_order['side']
-                    maker_token_id = watched_maker_order['tokenId']
-                    
-                    trade_info['token_id'] = str(maker_token_id)
-                    
-                    if maker_side == 0:
-                        trade_info['side'] = SELL
-                        trade_info['amount_usd'] = taker_fill_amount / 1e6
-                        trade_info['shares'] = maker_fill_amount / 1e6
-                    else:
-                        trade_info['side'] = BUY
-                        trade_info['amount_usd'] = maker_fill_amount / 1e6
-                        trade_info['shares'] = taker_fill_amount / 1e6
-                else:
-                    return {
-                        'token_id': None,
-                        'side': None,
-                        'amount_usd': None,
-                        'shares': None,
-                    }
-            
-            return trade_info
-            
-        except Exception as e:
-            print(f"⚠️ Error decoding matchOrders: {e}")
-            import traceback
-            traceback.print_exc()
-    
-    if not tx_receipt or 'logs' not in tx_receipt:
-        return trade_info
-    
-    conditional_tokens_addr = w3.to_checksum_address(POLYMARKET_CONDITIONAL_TOKENS)
-    
-    tokens_received = {}
-    tokens_sent = {}
-    usdc_sent = 0
-    usdc_received = 0
-    
-    for log in tx_receipt['logs']:
-        log_addr = log.get('address', '')
-        
-        if log_addr.lower() == conditional_tokens_addr.lower():
-            topics = log.get('topics', [])
-            if len(topics) >= 4:
-                if topics[0] in [TRANSFER_SINGLE_TOPIC, TRANSFER_BATCH_TOPIC]:
-                    try:
-                        from_addr = w3.to_checksum_address("0x" + topics[2][-40:])
-                        to_addr = w3.to_checksum_address("0x" + topics[3][-40:])
-                        
-                        if topics[0] == TRANSFER_SINGLE_TOPIC:
-                            data_hex = log.get('data', '0x')
-                            data_bytes = w3.to_bytes(hexstr=data_hex)
-                            token_id, value = w3.codec.decode(['uint256', 'uint256'], data_bytes)
-                            token_ids = [token_id]
-                            values = [value]
-                        else:
-                            data_hex = log.get('data', '0x')
-                            data_bytes = w3.to_bytes(hexstr=data_hex)
-                            token_ids, values = w3.codec.decode(['uint256[]', 'uint256[]'], data_bytes)
-                        
-                        for token_id, value in zip(token_ids, values):
-                            if to_addr.lower() == watch_addr.lower():
-                                tokens_received[token_id] = tokens_received.get(token_id, 0) + value
-                            if from_addr.lower() == watch_addr.lower():
-                                tokens_sent[token_id] = tokens_sent.get(token_id, 0) + value
-                    except Exception as e:
-                        print(f"⚠️ Error decoding ERC-1155 transfer: {e}")
-                        continue
-        
-        elif log_addr.lower() == POLYMARKET_USDC.lower():
-            transfer_topic = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
-            topics = log.get('topics', [])
-            if len(topics) >= 3 and topics[0] == transfer_topic:
-                try:
-                    from_addr = w3.to_checksum_address("0x" + topics[1][-40:])
-                    to_addr = w3.to_checksum_address("0x" + topics[2][-40:])
-                    data_hex = log.get('data', '0x')
-                    value = int(data_hex, 16) if data_hex != '0x' else 0
-                    usdc_amount = value / 1e6
-                    
-                    if from_addr.lower() == watch_addr.lower():
-                        usdc_sent += usdc_amount
-                    if to_addr.lower() == watch_addr.lower():
-                        usdc_received += usdc_amount
-                except Exception as e:
-                    print(f"⚠️ Error decoding USDC transfer: {e}")
-                    continue
-    
-    net_tokens = {}
-    for token_id in set(list(tokens_received.keys()) + list(tokens_sent.keys())):
-        net = tokens_received.get(token_id, 0) - tokens_sent.get(token_id, 0)
-        if net != 0:
-            net_tokens[token_id] = net
-    
-    if net_tokens:
-        primary_token = max(net_tokens.items(), key=lambda x: abs(x[1]))
-        token_id, net_amount = primary_token
-        
-        trade_info['token_id'] = str(token_id)
-        trade_info['shares'] = abs(net_amount) / 1e6
-        
-        if net_amount > 0:
-            trade_info['side'] = BUY
-            trade_info['amount_usd'] = usdc_sent
+                trade_info['side'] = SELL
+                trade_info['amount_usd'] = taker_receive_amount / 1e6
+                trade_info['shares'] = taker_fill_amount / 1e6
         else:
-            trade_info['side'] = SELL
-            trade_info['amount_usd'] = usdc_received
-    
-    return trade_info
+            watched_maker_order = maker_orders[watched_maker_idx]
+            token_id = watched_maker_order['tokenId']
+            maker_side = watched_maker_order['side']
+            maker_fill_amount = maker_fill_amounts[watched_maker_idx] if watched_maker_idx < len(maker_fill_amounts) else 0
+            
+            trade_info['token_id'] = str(token_id)
+            if maker_side == 0:
+                trade_info['side'] = BUY
+                maker_amount = watched_maker_order['makerAmount']
+                taker_amount = watched_maker_order['takerAmount']
+                if maker_amount > 0:
+                    trade_info['amount_usd'] = maker_fill_amount / 1e6
+                    trade_info['shares'] = (maker_fill_amount * taker_amount) / (maker_amount * 1e6)
+                else:
+                    trade_info['amount_usd'] = 0
+                    trade_info['shares'] = 0
+            else:
+                trade_info['side'] = SELL
+                maker_amount = watched_maker_order['makerAmount']
+                taker_amount = watched_maker_order['takerAmount']
+                if maker_amount > 0:
+                    trade_info['shares'] = maker_fill_amount / 1e6
+                    trade_info['amount_usd'] = (maker_fill_amount * taker_amount) / (maker_amount * 1e6)
+                else:
+                    trade_info['amount_usd'] = 0
+                    trade_info['shares'] = 0
+        
+        return trade_info
+        
+    except Exception as e:
+        print(f"⚠️ Error decoding matchOrders: {e}")
+        import traceback
+        traceback.print_exc()
+        return trade_info
 
 
 async def execute_copy_trade(trade_info):
-    if not trade_info['token_id'] or not trade_info['side']:
-        print("⚠️ Cannot execute copy trade: missing trade information")
-        return False
-    
-    if not PRIVATE_KEY or not FUNDER:
-        print("⚠️ Cannot execute copy trade: missing PRIVATE_KEY or FUNDER in environment")
-        return False
-    
     try:
         client = ClobClient(
             "https://clob.polymarket.com",
@@ -323,10 +230,11 @@ async def execute_copy_trade(trade_info):
         print(f"   Token ID: {trade_info['token_id']}")
         print(f"   Side: {trade_info['side']}")
         print(f"   Amount: ${amount:.2f}")
+        print(f"   Shares: {trade_info['shares']:.2f}" if trade_info['shares'] else "   Shares: N/A")
         
         mo = MarketOrderArgs(
             token_id=trade_info['token_id'],
-            amount=1000000000000000000,
+            amount=int(amount * 1e6),
             side=trade_info['side'],
             order_type=OrderType.FOK
         )
@@ -439,7 +347,7 @@ async def process_transaction(web3, tx_hash):
             print(f"   Token ID: {trade_info['token_id']}")
             print(f"   Side: {trade_info['side']}")
             print(f"   Amount: ${trade_info['amount_usd']:.2f}" if trade_info['amount_usd'] else "   Amount: N/A")
-            print(f"   Shares: {trade_info['shares']:.6f}" if trade_info['shares'] else "   Shares: N/A")
+            print(f"   Shares: {trade_info['shares']:.2f}" if trade_info['shares'] else "   Shares: N/A")
             
             await execute_copy_trade(trade_info)
         else:
@@ -481,7 +389,7 @@ async def get_events():
         print(f"Réponse de souscription: {subscription_response}")
 
         while True:
-            await process_transaction(web3, "0x9509b5d7a2f14bcec053a82fbf927c13cc9c4e96a02e5d06654ded8a327ec1a6")
+            await process_transaction(web3, "0xe9e14a747063db5db66c5522ada4f23a8916c5361310b15e37f3871cb8832855")
             await asyncio.sleep(100)
             try:
                 message = await asyncio.wait_for(ws.recv(), timeout=60)
