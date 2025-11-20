@@ -4,7 +4,6 @@
 
 ```bash
 pip install -r requirements.txt
-python approve.py
 
 python main.py
 ```
