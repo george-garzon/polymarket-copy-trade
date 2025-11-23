@@ -1,4 +1,4 @@
-# Polymarket Copy Trader
+# Polymarket Copy Trade
 
 A real-time copy trading bot for Polymarket that monitors a target wallet and automatically replicates trades with configurable position sizing. The bot executes copy trades in less than 1 second after detecting the original trade.
 
@@ -24,7 +24,6 @@ A real-time copy trading bot for Polymarket that monitors a target wallet and au
 
 - Python 3.7+
 - Infura account (for WebSocket and HTTP RPC endpoints)
-- Polymarket account with API credentials
 
 ### Installation
 
