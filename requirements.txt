@@ -2,3 +2,5 @@ py-clob-client
 python-dotenv
 web3
 websockets
+mysql-connector-python
+aiohttp
